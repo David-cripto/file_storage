@@ -10,6 +10,8 @@ import argparse
 import torch
 import torch.nn.functional as F
 from torch.nn.functional import adaptive_avg_pool2d
+import torchvision
+import random
 import torchvision.transforms as transforms
 
 from functools import partial
@@ -421,7 +423,28 @@ def visualize_and_save_results(trajectory_to_visualize_numpy, real_data, input_d
                                         f'evolution_step.png')
     plt.savefig(path_to_save_figures)
     print(f"saving {path_to_save_figures}")
-    
+
+def save_image_tensors(model_input_dataloader, sample_func, exp_path, seed_ar):
+    for seed in seed_ar:
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        path_to_dir = os.path.join(exp_path, "seed_" + str(seed))
+        os.makedirs(path_to_dir, exist_ok = True)
+        global_image = 0
+        for num, input_data in enumerate(model_input_dataloader):
+            if num > 0:
+                return
+            fake_sample = sample_func(input_data[0])
+            for img in fake_sample:
+                # img_pil = torchvision.transforms.functional.to_pil_image((img.cpu() + 1)/2)
+                img_pil = normalize_tensor(img)
+                path_to_save = os.path.join(path_to_dir, f"{global_image}.png")
+                torchvision.utils.save_image(img_pil, path_to_save)
+                global_image += 1
+                print(f"saving {path_to_save}")
+
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--path_to_DSBM', type=str)
 parser.add_argument('--data_dataset', type=str)
@@ -441,7 +464,8 @@ parser.add_argument('--nfe', action='append', default=None)
 opt = parser.parse_args()
 
 device = 'cuda:0'
-
+seed_ar = [42, 43, 44, 45]
+skip_metrics = True
 # path_to_DSBM = "/cache/selikhanovych/DSBM_AdvBM"
 path_to_DSBM = opt.path_to_DSBM
 label_output = opt.label_output
@@ -694,6 +718,9 @@ for fb in fb_list:
                 sample_fn_visualize = lambda batch: forward_sample(runner, model, batch, None, permute=True, fb=fb,
                                                                    num_steps=num_dsbm_nfe, return_last=False)[0]
 
+                save_image_tensors(model_input_dataloader, sample_fn_metrics, path_to_save_results + "/images_" + fb, seed_ar)
+                if skip_metrics:
+                    continue
                 path_to_save_pred_fid_statistics = os.path.join(path_to_save_results, f"pred_statistics_nfe_{nfe}.npz")
 
                 num_of_samples_for_trajectories_to_visualize = min(8, nfe)
@@ -863,7 +890,8 @@ for fb in fb_list:
                 visualize_and_save_results(fake_sample_visualize, x, y, path_to_save_results,
                                            num_of_samples_for_trajectories_to_visualize,
                                            nfe, min(10, nfe))
-
+            if skip_metrics:
+                continue
             if compute_torchmetrics:
                 fid_vals_torchmetrics = np.array(fid_vals_torchmetrics)
                 ax_fid.plot(nfe_list, fid_vals_torchmetrics, label="torchmetrics")
